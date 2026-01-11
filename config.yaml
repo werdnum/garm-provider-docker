@@ -1,0 +1,4 @@
+docker_host: "unix:///var/run/docker.sock"
+runtime: "sysbox-runc"
+network: "bridge"
+remove_volumes: true
