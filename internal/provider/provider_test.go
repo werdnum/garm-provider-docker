@@ -27,6 +27,11 @@ func (m *MockDockerClient) ImagePull(ctx context.Context, ref string, options ty
 	return args.Get(0).(io.ReadCloser), args.Error(1)
 }
 
+func (m *MockDockerClient) ImageInspectWithRaw(ctx context.Context, imageID string) (types.ImageInspect, []byte, error) {
+	args := m.Called(ctx, imageID)
+	return args.Get(0).(types.ImageInspect), args.Get(1).([]byte), args.Error(2)
+}
+
 func (m *MockDockerClient) ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *v1.Platform, containerName string) (container.CreateResponse, error) {
 	args := m.Called(ctx, config, hostConfig, networkingConfig, platform, containerName)
 	return args.Get(0).(container.CreateResponse), args.Error(1)
@@ -76,6 +81,9 @@ func TestCreateInstance(t *testing.T) {
 	// Set up config defaults
 	config.Config.Runtime = "sysbox-runc"
 	config.Config.Network = "bridge"
+
+	// Mock ImageInspect (simulate not found)
+	mockClient.On("ImageInspectWithRaw", mock.Anything, "ubuntu:latest").Return(types.ImageInspect{}, []byte{}, client.NewErrNotFound("image not found"))
 
 	// Mock ImagePull
 	mockClient.On("ImagePull", mock.Anything, "ubuntu:latest", mock.Anything).Return(io.NopCloser(strings.NewReader("")), nil)

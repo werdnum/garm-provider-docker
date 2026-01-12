@@ -19,6 +19,7 @@ import (
 
 type DockerClient interface {
 	ImagePull(ctx context.Context, ref string, options types.ImagePullOptions) (io.ReadCloser, error)
+	ImageInspectWithRaw(ctx context.Context, imageID string) (types.ImageInspect, []byte, error)
 	ContainerCreate(ctx context.Context, config *container.Config, hostConfig *container.HostConfig, networkingConfig *network.NetworkingConfig, platform *v1.Platform, containerName string) (container.CreateResponse, error)
 	ContainerStart(ctx context.Context, containerID string, options types.ContainerStartOptions) error
 	ContainerRemove(ctx context.Context, containerID string, options types.ContainerRemoveOptions) error
@@ -47,16 +48,23 @@ func NewDockerProvider(controllerID, poolID string) (*Provider, error) {
 }
 
 func (p *Provider) CreateInstance(ctx context.Context, bootstrapParams params.BootstrapInstance) (params.ProviderInstance, error) {
-	// 1. Pull Image
-	reader, err := p.DockerClient.ImagePull(ctx, bootstrapParams.Image, types.ImagePullOptions{})
+	// 1. Check/Pull Image
+	_, _, err := p.DockerClient.ImageInspectWithRaw(ctx, bootstrapParams.Image)
 	if err != nil {
-		return params.ProviderInstance{}, fmt.Errorf("failed to pull image %s: %w", bootstrapParams.Image, err)
+		if client.IsErrNotFound(err) {
+			slog.Info("image not found locally, pulling", "image", bootstrapParams.Image)
+			reader, err := p.DockerClient.ImagePull(ctx, bootstrapParams.Image, types.ImagePullOptions{})
+			if err != nil {
+				return params.ProviderInstance{}, fmt.Errorf("failed to pull image %s: %w", bootstrapParams.Image, err)
+			}
+			defer reader.Close()
+			io.Copy(io.Discard, reader)
+		} else {
+			return params.ProviderInstance{}, fmt.Errorf("failed to inspect image %s: %w", bootstrapParams.Image, err)
+		}
+	} else {
+		slog.Info("using local image", "image", bootstrapParams.Image)
 	}
-	defer reader.Close()
-	// Drain reader to ensure pull completes (or runs in background? No, we should wait)
-	// For CLI output we might want to pipe it, but here we just discard or log if needed.
-	// For speed in this provider, let's just discard.
-	io.Copy(io.Discard, reader)
 
 	// 2. Prepare Config
 	envs, err := spec.GetRunnerEnvs(bootstrapParams)
@@ -91,16 +99,47 @@ func (p *Provider) CreateInstance(ctx context.Context, bootstrapParams params.Bo
 		return params.ProviderInstance{}, fmt.Errorf("failed to start container: %w", err)
 	}
 
-	// 5. Return Instance
+	// 5. Get Container Info (for IP)
+	inspect, err := p.DockerClient.ContainerInspect(ctx, resp.ID)
+	if err != nil {
+		return params.ProviderInstance{}, fmt.Errorf("failed to inspect container after start: %w", err)
+	}
+
+	// 6. Return Instance
 	return params.ProviderInstance{
-		ProviderID: resp.ID,
+		ProviderID: inspect.ID,
 		Name:       bootstrapParams.Name,
-		Status:     params.InstanceRunning, // Assuming it starts running
+		Status:     params.InstanceRunning,
 		OSType:     bootstrapParams.OSType,
 		OSArch:     bootstrapParams.OSArch,
-		OSName:     "linux", // Sysbox is linux only usually
+		OSName:     "linux",
 		OSVersion:  "unknown",
+		Addresses:  containerToAddresses(inspect),
 	}, nil
+}
+
+func containerToAddresses(c types.ContainerJSON) []params.Address {
+	addrs := []params.Address{}
+	if c.NetworkSettings == nil {
+		return addrs
+	}
+
+	// Add IP from each network
+	for _, settings := range c.NetworkSettings.Networks {
+		if settings.IPAddress != "" {
+			addrs = append(addrs, params.Address{
+				Address: settings.IPAddress,
+				Type:    params.PrivateAddress,
+			})
+		}
+		if settings.GlobalIPv6Address != "" {
+			addrs = append(addrs, params.Address{
+				Address: settings.GlobalIPv6Address,
+				Type:    params.PrivateAddress,
+			})
+		}
+	}
+	return addrs
 }
 
 func (p *Provider) DeleteInstance(ctx context.Context, instance string) error {
