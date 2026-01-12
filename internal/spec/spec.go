@@ -42,11 +42,14 @@ func GetRunnerEnvs(bootstrapParams params.BootstrapInstance) ([]string, error) {
 		"RUNNER_WORKDIR=/runner/_work/",
 		fmt.Sprintf("GITHUB_URL=%s", gitHubScope.BaseURL),
 		"RUNNER_EPHEMERAL=true",
-		"RUNNER_TOKEN=dummy", // Garm handles the token via metadata/callbacks usually, or it's passed differently. k8s provider sets it to dummy.
+		"RUNNER_TOKEN=dummy",
 		fmt.Sprintf("METADATA_URL=%s", bootstrapParams.MetadataURL),
 		fmt.Sprintf("BEARER_TOKEN=%s", bootstrapParams.InstanceToken),
 		fmt.Sprintf("CALLBACK_URL=%s", bootstrapParams.CallbackURL),
-		// JIT config enabled might be needed if supported by the image
+	}
+
+	if bootstrapParams.JitConfigEnabled {
+		envs = append(envs, "JIT_CONFIG_ENABLED=true")
 	}
 	return envs, nil
 }
