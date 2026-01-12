@@ -89,6 +89,12 @@ func (p *Provider) CreateInstance(ctx context.Context, bootstrapParams params.Bo
 		// AutoRemove: true, // Maybe? Garm likes to delete explicitly.
 	}
 
+	// For privileged containers running Docker-in-Docker with KIND,
+	// we need host cgroup namespace for systemd to work properly
+	if config.Config.Privileged {
+		hostConfig.CgroupnsMode = container.CgroupnsModeHost
+	}
+
 	// 3. Create Container
 	resp, err := p.DockerClient.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, bootstrapParams.Name)
 	if err != nil {
