@@ -91,14 +91,15 @@ func (p *Provider) CreateInstance(ctx context.Context, bootstrapParams params.Bo
 
 	// For privileged containers running Docker-in-Docker:
 	// - Use host cgroup namespace so systemd/KIND can work properly
-	// - Mount /var/lib/docker as tmpfs so inner Docker can use overlayfs
+	// - Mount /var/lib/docker as a volume so inner Docker can use overlayfs
 	//   (avoids overlay-on-overlay issues when host uses overlayfs)
 	if config.Config.Privileged {
 		hostConfig.CgroupnsMode = container.CgroupnsModeHost
 		hostConfig.Mounts = []mount.Mount{
 			{
-				Type:   mount.TypeTmpfs,
+				Type:   mount.TypeVolume,
 				Target: "/var/lib/docker",
+				// Anonymous volume - will be cleaned up with RemoveVolumes: true
 			},
 		}
 	}
