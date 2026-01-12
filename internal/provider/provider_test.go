@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/errdefs"
 	"github.com/mercedes-benz/garm-provider-docker/internal/spec"
 	"github.com/mercedes-benz/garm-provider-docker/pkg/config"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -83,7 +85,7 @@ func TestCreateInstance(t *testing.T) {
 	config.Config.Network = "bridge"
 
 	// Mock ImageInspect (simulate not found)
-	mockClient.On("ImageInspectWithRaw", mock.Anything, "ubuntu:latest").Return(types.ImageInspect{}, []byte{}, client.NewErrNotFound("image not found"))
+	mockClient.On("ImageInspectWithRaw", mock.Anything, "ubuntu:latest").Return(types.ImageInspect{}, []byte{}, errdefs.NotFound(errors.New("image not found")))
 
 	// Mock ImagePull
 	mockClient.On("ImagePull", mock.Anything, "ubuntu:latest", mock.Anything).Return(io.NopCloser(strings.NewReader("")), nil)
@@ -104,6 +106,18 @@ func TestCreateInstance(t *testing.T) {
 
 	// Mock ContainerStart
 	mockClient.On("ContainerStart", mock.Anything, "container-id", mock.Anything).Return(nil)
+
+	// Mock ContainerInspect (for getting IP address)
+	mockClient.On("ContainerInspect", mock.Anything, "container-id").Return(types.ContainerJSON{
+		ContainerJSONBase: &types.ContainerJSONBase{
+			ID: "container-id",
+		},
+		NetworkSettings: &types.NetworkSettings{
+			Networks: map[string]*network.EndpointSettings{
+				"bridge": {IPAddress: "172.17.0.2"},
+			},
+		},
+	}, nil)
 
 	instance, err := p.CreateInstance(context.Background(), bootstrapParams)
 
