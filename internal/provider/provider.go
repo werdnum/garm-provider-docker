@@ -10,6 +10,7 @@ import (
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/mercedes-benz/garm-provider-docker/internal/spec"
@@ -86,13 +87,20 @@ func (p *Provider) CreateInstance(ctx context.Context, bootstrapParams params.Bo
 		Runtime:     spec.GetHostConfigRuntime(),
 		NetworkMode: container.NetworkMode(config.Config.Network),
 		Privileged:  config.Config.Privileged,
-		// AutoRemove: true, // Maybe? Garm likes to delete explicitly.
 	}
 
-	// For privileged containers running Docker-in-Docker with KIND,
-	// we need host cgroup namespace for systemd to work properly
+	// For privileged containers running Docker-in-Docker:
+	// - Use host cgroup namespace so systemd/KIND can work properly
+	// - Mount /var/lib/docker as tmpfs so inner Docker can use overlayfs
+	//   (avoids overlay-on-overlay issues when host uses overlayfs)
 	if config.Config.Privileged {
 		hostConfig.CgroupnsMode = container.CgroupnsModeHost
+		hostConfig.Mounts = []mount.Mount{
+			{
+				Type:   mount.TypeTmpfs,
+				Target: "/var/lib/docker",
+			},
+		}
 	}
 
 	// 3. Create Container
