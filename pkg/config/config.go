@@ -12,13 +12,16 @@ var Config ProviderConfig
 
 type ProviderConfig struct {
 	DockerHost string `koanf:"docker_host"`
-	// Runtime to use for the container (e.g., "sysbox-runc")
+	// Runtime to use for the container (e.g., "sysbox-runc", "runc")
 	// Defaults to "sysbox-runc" if not set.
 	Runtime string `koanf:"runtime"`
 	// Network to attach the container to. Defaults to "bridge".
 	Network string `koanf:"network"`
 	// RemoveVolumes indicates whether to remove volumes when deleting the container.
 	RemoveVolumes bool `koanf:"remove_volumes"`
+	// Privileged runs the container in privileged mode.
+	// Required for Docker-in-Docker without Sysbox.
+	Privileged bool `koanf:"privileged"`
 }
 
 func NewConfig(path string) error {

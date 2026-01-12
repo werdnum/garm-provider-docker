@@ -83,8 +83,9 @@ func (p *Provider) CreateInstance(ctx context.Context, bootstrapParams params.Bo
 	}
 
 	hostConfig := &container.HostConfig{
-		Runtime: spec.GetHostConfigRuntime(), // "sysbox-runc"
+		Runtime:     spec.GetHostConfigRuntime(),
 		NetworkMode: container.NetworkMode(config.Config.Network),
+		Privileged:  config.Config.Privileged,
 		// AutoRemove: true, // Maybe? Garm likes to delete explicitly.
 	}
 
