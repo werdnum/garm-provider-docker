@@ -50,19 +50,26 @@ func NewDockerProvider(controllerID, poolID string) (*Provider, error) {
 
 func (p *Provider) CreateInstance(ctx context.Context, bootstrapParams params.BootstrapInstance) (params.ProviderInstance, error) {
 	// 1. Check/Pull Image
-	_, _, err := p.DockerClient.ImageInspectWithRaw(ctx, bootstrapParams.Image)
-	if err != nil {
-		if client.IsErrNotFound(err) {
-			slog.Info("image not found locally, pulling", "image", bootstrapParams.Image)
-			reader, err := p.DockerClient.ImagePull(ctx, bootstrapParams.Image, types.ImagePullOptions{})
-			if err != nil {
-				return params.ProviderInstance{}, fmt.Errorf("failed to pull image %s: %w", bootstrapParams.Image, err)
+	needsPull := config.Config.AlwaysPull
+	if !needsPull {
+		_, _, err := p.DockerClient.ImageInspectWithRaw(ctx, bootstrapParams.Image)
+		if err != nil {
+			if client.IsErrNotFound(err) {
+				needsPull = true
+			} else {
+				return params.ProviderInstance{}, fmt.Errorf("failed to inspect image %s: %w", bootstrapParams.Image, err)
 			}
-			defer reader.Close()
-			io.Copy(io.Discard, reader)
-		} else {
-			return params.ProviderInstance{}, fmt.Errorf("failed to inspect image %s: %w", bootstrapParams.Image, err)
 		}
+	}
+
+	if needsPull {
+		slog.Info("pulling image", "image", bootstrapParams.Image, "always_pull", config.Config.AlwaysPull)
+		reader, err := p.DockerClient.ImagePull(ctx, bootstrapParams.Image, types.ImagePullOptions{})
+		if err != nil {
+			return params.ProviderInstance{}, fmt.Errorf("failed to pull image %s: %w", bootstrapParams.Image, err)
+		}
+		defer reader.Close()
+		io.Copy(io.Discard, reader)
 	} else {
 		slog.Info("using local image", "image", bootstrapParams.Image)
 	}

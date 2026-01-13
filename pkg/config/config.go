@@ -24,6 +24,9 @@ type ProviderConfig struct {
 	Privileged bool `koanf:"privileged"`
 	// Binds are bind mounts to add to all containers (e.g., "/host/path:/container/path:ro")
 	Binds []string `koanf:"binds"`
+	// AlwaysPull forces pulling the image before each container creation.
+	// Useful to ensure runners always use the latest image.
+	AlwaysPull bool `koanf:"always_pull"`
 }
 
 func NewConfig(path string) error {
