@@ -27,6 +27,9 @@ type ProviderConfig struct {
 	// AlwaysPull forces pulling the image before each container creation.
 	// Useful to ensure runners always use the latest image.
 	AlwaysPull bool `koanf:"always_pull"`
+	// DockerConfigPath is the path to a Docker config.json file for registry auth.
+	// If not set, defaults to ~/.docker/config.json
+	DockerConfigPath string `koanf:"docker_config_path"`
 }
 
 func NewConfig(path string) error {

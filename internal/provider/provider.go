@@ -2,9 +2,13 @@ package provider
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
+	"strings"
 
 	"github.com/cloudbase/garm-provider-common/params"
 	"github.com/docker/docker/api/types"
@@ -12,6 +16,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/registry"
 	"github.com/docker/docker/client"
 	"github.com/mercedes-benz/garm-provider-docker/internal/spec"
 	"github.com/mercedes-benz/garm-provider-docker/pkg/config"
@@ -64,7 +69,11 @@ func (p *Provider) CreateInstance(ctx context.Context, bootstrapParams params.Bo
 
 	if needsPull {
 		slog.Info("pulling image", "image", bootstrapParams.Image, "always_pull", config.Config.AlwaysPull)
-		reader, err := p.DockerClient.ImagePull(ctx, bootstrapParams.Image, types.ImagePullOptions{})
+		pullOpts := types.ImagePullOptions{}
+		if authStr := getRegistryAuth(bootstrapParams.Image); authStr != "" {
+			pullOpts.RegistryAuth = authStr
+		}
+		reader, err := p.DockerClient.ImagePull(ctx, bootstrapParams.Image, pullOpts)
 		if err != nil {
 			return params.ProviderInstance{}, fmt.Errorf("failed to pull image %s: %w", bootstrapParams.Image, err)
 		}
@@ -327,4 +336,76 @@ func containerSummaryToInstance(c types.Container) params.ProviderInstance {
 		OSType:     params.OSType(c.Labels[spec.GarmOSTypeLabel]),
 		OSArch:     params.OSArch(c.Labels[spec.GarmOSArchLabel]),
 	}
+}
+
+// dockerConfig represents the structure of ~/.docker/config.json
+type dockerConfig struct {
+	Auths map[string]dockerAuthEntry `json:"auths"`
+}
+
+type dockerAuthEntry struct {
+	Auth string `json:"auth"`
+}
+
+// getRegistryAuth returns the base64-encoded auth string for the registry of the given image.
+// It reads from the Docker config file specified in config.Config.DockerConfigPath,
+// or ~/.docker/config.json if not specified.
+func getRegistryAuth(image string) string {
+	configPath := config.Config.DockerConfigPath
+	if configPath == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			slog.Debug("failed to get home dir for docker config", "error", err)
+			return ""
+		}
+		configPath = home + "/.docker/config.json"
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		slog.Debug("failed to read docker config", "path", configPath, "error", err)
+		return ""
+	}
+
+	var cfg dockerConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		slog.Debug("failed to parse docker config", "error", err)
+		return ""
+	}
+
+	// Extract registry from image (e.g., "ghcr.io/user/image:tag" -> "ghcr.io")
+	registryHost := "docker.io" // default
+	if strings.Contains(image, "/") {
+		parts := strings.SplitN(image, "/", 2)
+		if strings.Contains(parts[0], ".") || strings.Contains(parts[0], ":") {
+			registryHost = parts[0]
+		}
+	}
+
+	if entry, ok := cfg.Auths[registryHost]; ok {
+		// The auth in config.json is already base64(username:password)
+		// Docker API expects base64(json(AuthConfig)), so we need to re-encode
+		decoded, err := base64.StdEncoding.DecodeString(entry.Auth)
+		if err != nil {
+			slog.Debug("failed to decode auth from docker config", "error", err)
+			return ""
+		}
+		parts := strings.SplitN(string(decoded), ":", 2)
+		if len(parts) != 2 {
+			slog.Debug("invalid auth format in docker config")
+			return ""
+		}
+		authConfig := registry.AuthConfig{
+			Username: parts[0],
+			Password: parts[1],
+		}
+		authJSON, err := json.Marshal(authConfig)
+		if err != nil {
+			slog.Debug("failed to encode auth config", "error", err)
+			return ""
+		}
+		return base64.URLEncoding.EncodeToString(authJSON)
+	}
+
+	return ""
 }
