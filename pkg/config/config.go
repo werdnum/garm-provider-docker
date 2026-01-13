@@ -22,6 +22,8 @@ type ProviderConfig struct {
 	// Privileged runs the container in privileged mode.
 	// Required for Docker-in-Docker without Sysbox.
 	Privileged bool `koanf:"privileged"`
+	// Binds are bind mounts to add to all containers (e.g., "/host/path:/container/path:ro")
+	Binds []string `koanf:"binds"`
 }
 
 func NewConfig(path string) error {

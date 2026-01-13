@@ -87,6 +87,7 @@ func (p *Provider) CreateInstance(ctx context.Context, bootstrapParams params.Bo
 		Runtime:     spec.GetHostConfigRuntime(),
 		NetworkMode: container.NetworkMode(config.Config.Network),
 		Privileged:  config.Config.Privileged,
+		Binds:       config.Config.Binds,
 	}
 
 	// For privileged containers running Docker-in-Docker:
